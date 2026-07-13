@@ -99,6 +99,16 @@ foreach ($cr in $carryRows) {
 }
 Write-Host ("[upload] 캐리요약 " + ($carryLines.Count - 1) + "값")
 
+# ── 3.5) SIRS 시트 단기금리 — RP(T29/U29)·회사3M(T30/U30). 값=금리, 옆칸=전일대비 ──
+$ss = Sheet $wb "SIRS"
+if ($ss) {
+  AddMeta $carryLines $asOf "rate.rp"         $ss.Cells.Item(29,20).Value2 "RP금리(SIRS T29)"
+  AddMeta $carryLines $asOf "rate.rp.chg"     $ss.Cells.Item(29,21).Value2 "RP 전일대비(U29)"
+  AddMeta $carryLines $asOf "rate.corp3m"     $ss.Cells.Item(30,20).Value2 "회사3M(SIRS T30)"
+  AddMeta $carryLines $asOf "rate.corp3m.chg" $ss.Cells.Item(30,21).Value2 "회사3M 전일대비(U30)"
+  Write-Host "[upload] SIRS 단기금리(RP/회사3M) 추출"
+} else { Write-Host "[upload] SIRS 시트 없음 — 단기금리 스킵" }
+
 # ── 4) 펀드→전략 ─────────────────────────────────────────────────────────────
 $fc = Sheet $wb "Query.펀드코드.공학팀"
 $nR = $fc.UsedRange.Rows.Count
