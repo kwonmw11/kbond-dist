@@ -6,7 +6,10 @@ $ErrorActionPreference = "Continue"
 
 # ── 설정 (회사 PC 환경에 맞게) ───────────────────────────────────────────────
 $ENDPOINT = "https://bondmonitoring.onrender.com/api/import/positions"
-$TOKEN    = "CHANGE_ME"                                  # ★ FICC 모니터 IMPORT_TOKEN 으로 교체 (여기만 수정)
+$TOKEN    = "CHANGE_ME"                                  # ★ FICC 모니터 IMPORT_TOKEN 으로 교체 (또는 아래 토큰파일 사용)
+# 스크립트 옆 position-upload.token.txt 가 있으면 그 내용을 토큰으로 사용 — 스크립트를 새로 받아도 재입력 불필요
+$tokenFile = Join-Path $PSScriptRoot "position-upload.token.txt"
+if (Test-Path $tokenFile) { $TOKEN = (Get-Content $tokenFile -Raw).Trim() }
 $FILE_DIR = "C:\kbond-collector\positions"               # App.금리차익.포지션.*.xlsm 을 넣어두는 폴더
 $BOOK     = "B020105"                                    # 금리차익 북
 
@@ -36,7 +39,7 @@ $col = @{}
 for ($c = 1; $c -le $nC; $c++) { $h = ([string]$arr[1,$c]).Trim(); if ($h -and -not $col.ContainsKey($h)) { $col[$h] = $c } }
 function C($name) { if ($col.ContainsKey($name)) { return $col[$name] } else { return 0 } }
 function V($arr, $r, $c) { if ($c -ge 1) { return $arr[$r,$c] } else { return $null } }
-$required = @("북코드","펀드코드","종목코드","종목명","민감도구분","종류","자산구분","YTM","수량","PV01","1D","3M","3Y","10Y","30Y")
+$required = @("북코드","펀드코드","종목코드","종목명","민감도구분","YTM","수량","PV01","1D","3M","3Y","10Y","30Y")  # 자산구분·종류·전략구분은 있으면 사용, 없으면 빈값
 $missing = $required | Where-Object { -not $col.ContainsKey($_) }
 if ($missing) { Write-Host ("[upload] 금리민감도 필수 헤더 누락: " + ($missing -join ",") + " — 중단"); exit 3 }
 $tenorNames = @("1D","3M","6M","9M","1Y","1Y6M","2Y","2Y6M","3Y","4Y","5Y","7Y","10Y","12Y","15Y","20Y","30Y")
