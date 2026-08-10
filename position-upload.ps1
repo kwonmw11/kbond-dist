@@ -26,39 +26,61 @@ function Sheet($wb, $name) { foreach ($s in $wb.Worksheets) { if ($s.Name -eq $n
 function OaYmd($v) { if ($v -is [double] -and $v -gt 20000) { return [DateTime]::FromOADate($v).ToString("yyyy-MM-dd") }; return "" }
 function Num($v) { if ($v -is [double] -or $v -is [int]) { return [string]$v }; return "" }
 
-# ── 1) 금리민감도 ────────────────────────────────────────────────────────────
+# ── 1) 금리민감도 — ★ 헤더명 기반 매핑 (컬럼 삽입/삭제에 견고. 2026-07-22 "전략구분" 삭제 사고 대응) ──
 $ms = Sheet $wb "금리민감도"
 $asOf = OaYmd $ms.Cells.Item(1,1).Value2
 $nR = $ms.UsedRange.Rows.Count
-$arr = $ms.Range($ms.Cells(1,1), $ms.Cells($nR, 38)).Value2
+$nC = [Math]::Min($ms.UsedRange.Columns.Count, 60)
+$arr = $ms.Range($ms.Cells(1,1), $ms.Cells($nR, $nC)).Value2
+$col = @{}
+for ($c = 1; $c -le $nC; $c++) { $h = ([string]$arr[1,$c]).Trim(); if ($h -and -not $col.ContainsKey($h)) { $col[$h] = $c } }
+function C($name) { if ($col.ContainsKey($name)) { return $col[$name] } else { return 0 } }
+function V($arr, $r, $c) { if ($c -ge 1) { return $arr[$r,$c] } else { return $null } }
+$required = @("북코드","펀드코드","종목코드","종목명","민감도구분","종류","자산구분","YTM","수량","PV01","1D","3M","3Y","10Y","30Y")
+$missing = $required | Where-Object { -not $col.ContainsKey($_) }
+if ($missing) { Write-Host ("[upload] 금리민감도 필수 헤더 누락: " + ($missing -join ",") + " — 중단"); exit 3 }
+$tenorNames = @("1D","3M","6M","9M","1Y","1Y6M","2Y","2Y6M","3Y","4Y","5Y","7Y","10Y","12Y","15Y","20Y","30Y")
 $riskLines = New-Object System.Collections.Generic.List[string]
 $riskLines.Add("asOf,sht,bookCode,fundCode,symbol,name,riskFactor,kind,assetClass,strategy,ytm,cpn,modDur,price,maturity,bondClass,rating,quantity,bookValue,carry,pv01,t1d,t3m,t6m,t9m,t1y,t18m,t2y,t30m,t3y,t4y,t5y,t7y,t10y,t12y,t15y,t20y,t30y")
 for ($r = 2; $r -le $nR; $r++) {
-  if ([string]$arr[$r,2] -ne $BOOK) { continue }
-  $name = ([string]$arr[$r,5]) -replace '[",]', ' '
-  $vals = @($asOf, [string]$arr[$r,1], [string]$arr[$r,2], [string]$arr[$r,3], [string]$arr[$r,4], $name,
-    [string]$arr[$r,6], [string]$arr[$r,7], [string]$arr[$r,8], [string]$arr[$r,9],
-    (Num $arr[$r,10]), (Num $arr[$r,11]), (Num $arr[$r,12]), (Num $arr[$r,13]), (OaYmd $arr[$r,14]),
-    ([string]$arr[$r,15] -replace ',',' '), ([string]$arr[$r,16] -replace ',',' '),
-    (Num $arr[$r,17]), (Num $arr[$r,19]), (Num $arr[$r,20]), (Num $arr[$r,21]))
-  for ($c = 22; $c -le 38; $c++) { $vals += (Num $arr[$r,$c]) }
+  if ([string](V $arr $r (C "북코드")) -ne $BOOK) { continue }
+  $name = ([string](V $arr $r (C "종목명"))) -replace '[",]', ' '
+  $vals = @($asOf, [string]$arr[$r,1], [string](V $arr $r (C "북코드")), [string](V $arr $r (C "펀드코드")),
+    [string](V $arr $r (C "종목코드")), $name,
+    [string](V $arr $r (C "민감도구분")), [string](V $arr $r (C "종류")), [string](V $arr $r (C "자산구분")),
+    [string](V $arr $r (C "전략구분")),
+    (Num (V $arr $r (C "YTM"))), (Num (V $arr $r (C "CPN"))), (Num (V $arr $r (C "수정듀레이션"))),
+    (Num (V $arr $r (C "평가단가"))), (OaYmd (V $arr $r (C "자산만기"))),
+    ([string](V $arr $r (C "채무증권분류")) -replace ',',' '), ([string](V $arr $r (C "신용등급")) -replace ',',' '),
+    (Num (V $arr $r (C "수량"))), (Num (V $arr $r (C "장부금액"))), (Num (V $arr $r (C "Carry"))), (Num (V $arr $r (C "PV01"))))
+  foreach ($t in $tenorNames) { $vals += (Num (V $arr $r (C $t))) }
   $riskLines.Add(($vals -join ","))
 }
 Write-Host ("[upload] 금리민감도 " + ($riskLines.Count - 1) + "행 (asOf " + $asOf + ")")
 
-# ── 2) 채무증권 ──────────────────────────────────────────────────────────────
+# ── 2) 채무증권 (헤더명 기반) ────────────────────────────────────────────────
 $bs = Sheet $wb "채무증권"
 $nR = $bs.UsedRange.Rows.Count
-$arr = $bs.Range($bs.Cells(1,1), $bs.Cells($nR, 26)).Value2
+$nC2 = [Math]::Min($bs.UsedRange.Columns.Count, 60)
+$arr = $bs.Range($bs.Cells(1,1), $bs.Cells($nR, $nC2)).Value2
+$col = @{}
+for ($c = 1; $c -le $nC2; $c++) { $h = ([string]$arr[1,$c]).Trim(); if ($h -and -not $col.ContainsKey($h)) { $col[$h] = $c } }
+$required2 = @("북코드","펀드코드","종목코드","종목명","수량","평가단가","YTM")
+$missing2 = $required2 | Where-Object { -not $col.ContainsKey($_) }
+if ($missing2) { Write-Host ("[upload] 채무증권 필수 헤더 누락: " + ($missing2 -join ",") + " — 중단"); exit 3 }
 $bondLines = New-Object System.Collections.Generic.List[string]
 $bondLines.Add("asOf,sht,fundCode,symbol,name,kind,riskFactor,rating,rateType,buyDate,maturity,quantity,evalPrice,modDur,ytm,carry,buyYield,cpn,cpnFreq,buyPrice,bookValue,evalValue")
 for ($r = 2; $r -le $nR; $r++) {
-  if ([string]$arr[$r,2] -ne $BOOK) { continue }
-  $name = ([string]$arr[$r,5]) -replace '[",]', ' '
-  $bondLines.Add((@($asOf, [string]$arr[$r,1], [string]$arr[$r,3], [string]$arr[$r,4], $name, [string]$arr[$r,6], [string]$arr[$r,7],
-    ([string]$arr[$r,8] -replace ',',' '), [string]$arr[$r,9], (OaYmd $arr[$r,10]), (OaYmd $arr[$r,11]),
-    (Num $arr[$r,13]), (Num $arr[$r,16]), (Num $arr[$r,17]), (Num $arr[$r,18]), (Num $arr[$r,19]), (Num $arr[$r,20]),
-    (Num $arr[$r,21]), (Num $arr[$r,22]), (Num $arr[$r,24]), (Num $arr[$r,25]), (Num $arr[$r,26])) -join ","))
+  if ([string](V $arr $r (C "북코드")) -ne $BOOK) { continue }
+  $name = ([string](V $arr $r (C "종목명"))) -replace '[",]', ' '
+  $bondLines.Add((@($asOf, [string]$arr[$r,1], [string](V $arr $r (C "펀드코드")), [string](V $arr $r (C "종목코드")), $name,
+    [string](V $arr $r (C "종류")), [string](V $arr $r (C "민감도구분")),
+    ([string](V $arr $r (C "신용등급")) -replace ',',' '), [string](V $arr $r (C "이자유형")),
+    (OaYmd (V $arr $r (C "매수일자"))), (OaYmd (V $arr $r (C "만기일자"))),
+    (Num (V $arr $r (C "수량"))), (Num (V $arr $r (C "평가단가"))), (Num (V $arr $r (C "수정듀레이션"))),
+    (Num (V $arr $r (C "YTM"))), (Num (V $arr $r (C "Carry"))), (Num (V $arr $r (C "매수수익률"))),
+    (Num (V $arr $r (C "CPN"))), (Num (V $arr $r (C "CPN 지급주기"))), (Num (V $arr $r (C "매수단가"))),
+    (Num (V $arr $r (C "장부금액"))), (Num (V $arr $r (C "평가금액")))) -join ","))
 }
 Write-Host ("[upload] 채무증권 " + ($bondLines.Count - 1) + "행")
 
