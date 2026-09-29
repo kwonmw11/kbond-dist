@@ -11,7 +11,7 @@
 #     - 서버는 시트 기준일(asOf) 단위로 교체 저장, 보유종목은 마지막(최신) 파일로 남는다.
 #   · SIRS 단기금리(RP·회사금리)는 고정 좌표(T29/T30)가 아니라 S열 라벨("RP금리"/"회사금리")로 행을 찾는다.
 #     (2026-09-03 시트에 헤더 행이 삽입돼 한 줄씩 밀리면서 SOFR_3M/RP가 RP/회사로 올라가던 사고 재발 방지)
-#   · 토큰: 스크립트 옆 import-token.txt 가 있으면 그 내용을 우선 사용(스크립트 갱신 시 토큰 보존).
+#   · 토큰: 스크립트 옆 position-upload.token.txt(구버전 이름) 또는 import-token.txt 를 우선 사용(스크립트 갱신 시 토큰 보존).
 param([switch]$LatestOnly)
 $ErrorActionPreference = "Continue"
 
@@ -22,9 +22,11 @@ $FILE_DIR = "C:\kbond-collector\positions"               # App.금리차익.포�
 $BOOK     = "B020105"                                    # 금리차익 북
 
 $scriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
-$tokenFile = Join-Path $scriptDir "import-token.txt"
-if (Test-Path $tokenFile) { $t = (Get-Content $tokenFile -Raw).Trim(); if ($t) { $TOKEN = $t } }
-if (-not $TOKEN -or $TOKEN -eq "CHANGE_ME") { Write-Host "[upload] 토큰 없음 — $tokenFile 에 IMPORT_TOKEN 을 넣거나 스크립트의 TOKEN 을 수정"; exit 4 }
+# 토큰파일: 구버전 이름(position-upload.token.txt) 우선, 없으면 import-token.txt — 둘 중 하나만 있으면 됨
+$tokenFile = $null
+foreach ($n in @("position-upload.token.txt", "import-token.txt")) { $c = Join-Path $scriptDir $n; if (Test-Path $c) { $tokenFile = $c; break } }
+if ($tokenFile) { $t = (Get-Content $tokenFile -Raw).Trim(); if ($t) { $TOKEN = $t } }
+if (-not $TOKEN -or $TOKEN -eq "CHANGE_ME") { Write-Host "[upload] 토큰 없음 — $scriptDir\position-upload.token.txt 에 IMPORT_TOKEN 을 한 줄로 넣으세요"; exit 4 }
 
 # ── 대상 파일 목록 (파일명 날짜 오름차순, 같은 날짜는 가장 늦게 저장된 버전) ─────────
 $all = Get-ChildItem $FILE_DIR -File -Filter "App.금리차익.포지션.*.xlsm" -Recurse -Depth 2 -ErrorAction SilentlyContinue | ForEach-Object {
