@@ -22,6 +22,15 @@ $FILE_DIR = "C:\kbond-collector\positions"               # App.금리차익.포�
 $BOOK     = "B020105"                                    # 금리차익 북
 
 $scriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
+# ── 동시 실행 방지 — 정기 태스크(매시)와 수동 백필이 겹치면 같은 파일을 두 번 올리고(서버 적재 ~100초) 같은 asOf 를
+#    동시에 지우고 써서 서버 오류로 중단될 수 있다. 락 파일(30분 이내 생성)이 있으면 이번 실행은 건너뛴다.
+$lockFile = Join-Path $scriptDir "position-upload.lock"
+if (Test-Path $lockFile) {
+  $age = (Get-Date) - (Get-Item $lockFile).LastWriteTime
+  if ($age.TotalMinutes -lt 30) { Write-Host ("[upload] 다른 업로드 실행 중(락 " + [int]$age.TotalMinutes + "분 전) — 이번 실행 건너뜀"); exit 0 }
+  Write-Host "[upload] 오래된 락(30분 초과) 무시"
+}
+Set-Content -Path $lockFile -Value ("pid " + $PID + " " + (Get-Date -Format "yyyy-MM-dd HH:mm:ss")) -Encoding ASCII
 # 토큰파일: 구버전 이름(position-upload.token.txt) 우선, 없으면 import-token.txt — 둘 중 하나만 있으면 됨
 $tokenFile = $null
 foreach ($n in @("position-upload.token.txt", "import-token.txt")) { $c = Join-Path $scriptDir $n; if (Test-Path $c) { $tokenFile = $c; break } }
@@ -190,6 +199,7 @@ function Upload-One($f, $isLatest) {
 
 $ok = 0; $fail = 0
 foreach ($t in $targets) {
+  Set-Content -Path $lockFile -Value ("pid " + $PID + " " + (Get-Date -Format "yyyy-MM-dd HH:mm:ss")) -Encoding ASCII  # 락 갱신
   $tag = if ($t.IsLatest) { " (최신)" } else { " (백필)" }
   Write-Host ("`n[upload] === " + $t.Date + $tag + " ===")
   $r = Upload-One $t.File $t.IsLatest
@@ -197,5 +207,6 @@ foreach ($t in $targets) {
   else { $fail++; if (-not $t.IsLatest) { Write-Host "[upload] 백필 파일 실패 — 이후 파일 중단(순서 보존)"; break } }
 }
 if ($opened) { $xl.Quit() }
+Remove-Item -Path $lockFile -ErrorAction SilentlyContinue
 Write-Host ("`n[upload] 완료 — 성공 " + $ok + " / 실패 " + $fail + " / 대상 " + @($targets).Count)
 if ($fail -gt 0) { exit 1 }
